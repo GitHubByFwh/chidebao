@@ -14,11 +14,11 @@ import com.itfwh.spm.service.DishService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -38,6 +38,9 @@ public class DishController {
     @Autowired
     private CategoryService categoryService;
 
+    @Autowired
+    private RedisTemplate redisTemplate;
+
     /**
      * 新增菜品
      * @param dishDto
@@ -46,6 +49,10 @@ public class DishController {
     @PostMapping
     public R<String> save(@RequestBody DishDto dishDto){
         log.info(dishDto.toString());
+
+        //清理对应的菜品分类的缓存数据
+        String key = "dish_"+dishDto.getCategoryId()+"_"+dishDto.getStatus();
+        redisTemplate.delete(key);
 
         dishService.saveWithFlavor(dishDto);
         return R.success("新增菜品成功");
@@ -118,6 +125,10 @@ public class DishController {
     @PutMapping
     public R<String> update(@RequestBody DishDto dishDto){
         dishService.updateWithFlavor(dishDto);
+
+        //清理对应的菜品分类的缓存数据
+        String key = "dish_"+dishDto.getCategoryId()+"_"+dishDto.getStatus();
+        redisTemplate.delete(key);
         return R.success("修改菜品成功");
     }
 
@@ -128,6 +139,20 @@ public class DishController {
      */
     @GetMapping("/list")
     public R<List<DishDto>> list(Dish dish){
+        List<DishDto> dishDtoList =null;
+
+        //构造key：dish_分类id_状态（1）
+        String key = "dish_" + dish.getCategoryId() + "_" + dish.getStatus();
+        //先从redis'中获取缓存数据，
+        dishDtoList= (List<DishDto>) redisTemplate.opsForValue().get(key);
+
+        if (dishDtoList!=null){
+            //如果存在，直接返回，不需要查询数据库
+            return R.success(dishDtoList);
+        }
+
+        //不存在，需要查询数据库，并且，将查询到的菜品数据缓存到redis中
+
         //构建查询条件
         LambdaQueryWrapper<Dish> queryWrapper = new LambdaQueryWrapper<>();
         //查询状态为在售（1），且是当前菜品的分类的菜
@@ -136,7 +161,7 @@ public class DishController {
         queryWrapper.orderByAsc(Dish::getSort).orderByDesc(Dish::getUpdateTime);
         List<Dish> list = dishService.list(queryWrapper);
 
-        List<DishDto> dishDtoList = list.stream().map((item)->{
+        dishDtoList = list.stream().map((item)->{
             DishDto dishDto = new DishDto();
             BeanUtils.copyProperties(item,dishDto);
 
@@ -159,6 +184,9 @@ public class DishController {
             dishDto.setFlavors(dishFlavors);
             return dishDto;
         }).collect(Collectors.toList());
+
+        //缓存到redis中，下次使用的时候不需要访问数据库
+        redisTemplate.opsForValue().set(key,dishDtoList,60, TimeUnit.MINUTES);
 
         return R.success(dishDtoList);
     }
@@ -183,9 +211,11 @@ public class DishController {
     @DeleteMapping
     public R<String> delete(@RequestParam List<Long> ids){
         log.info("删除的分组：ids:{}",ids);
+
         dishService.remove_flavor(ids);
 
-
+        //删除操作不用更新缓存，因为给用户的展示的数据是在售状态的商品，而在售状态的商品，在修改销售状态为停售之前是没有权限删除的
+        //无权限删除，即在售物品无法删除，无法造成脏读数据
         return R.success("删除分组成功");
     }
 
@@ -196,7 +226,7 @@ public class DishController {
      * @return
      */
     @PostMapping("/status/{type}")
-    public R<String> update(String[] ids, @PathVariable String type){
+    public R<String> updateStatus(String[] ids, @PathVariable String type){
         log.info("修改的状态为：{}",type);
         List<String> list = Arrays.asList(ids);
         Dish dish = new Dish();
@@ -206,7 +236,22 @@ public class DishController {
         updateWrapper.in("id",list);
         //修改值
         dish.setStatus(new Integer(type));
+
         dishService.update(dish,updateWrapper);
+
+
+        Set<Long> set = new HashSet<>();
+        for (String id : ids) {
+            Dish d = dishService.getById(id);
+            set.add(d.getCategoryId());
+        }
+
+        //清理对应的菜品分类的缓存数据
+        for (Long categoryId : set) {
+            String key = "dish_"+categoryId+"_1";
+            redisTemplate.delete(key);
+        }
+
         return R.success("更新成功");
     }
 }
