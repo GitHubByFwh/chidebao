@@ -13,6 +13,8 @@ import com.itfwh.spm.service.SetmealService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Arrays;
@@ -43,6 +45,7 @@ public class SetmealController {
      * @return
      */
     @PostMapping
+    @CacheEvict(value = "setmealCache",allEntries = true)//清除setmealCache所有的缓存
     public R<String> save(@RequestBody SetmealDto setmealDto){
         log.info("套餐信息：{}",setmealDto);
         setmealService.saveWithDish(setmealDto);
@@ -90,7 +93,8 @@ public class SetmealController {
     }
 
     /**
-     * 删除套餐
+     * 删除套餐:因为删除套餐设置的只能删除停售的套餐，而移动端展示的是在售的套餐，故删除停售的套餐不影响在售的展示，故不需要清除缓存
+     * 反之，更新套餐的状态需要更新缓存
      * @param ids
      * @return
      */
@@ -108,8 +112,9 @@ public class SetmealController {
      * @param ids
      * @return
      */
+    @CacheEvict(value = "setmealCache",allEntries = true)//清除setmealCache所有的缓存
     @PostMapping("/status/{type}")
-    public R<String> update(@PathVariable String type,String[] ids){
+    public R<String> updateStatus(@PathVariable String type,String[] ids){
         log.info("修改状态");
         //修改setmeal表的status字段
         Setmeal setmeal = new Setmeal();
@@ -138,6 +143,7 @@ public class SetmealController {
      * @return
      */
     @PutMapping
+    @CacheEvict(value = "setmealCache",allEntries = true)
     public R<String> update(@RequestBody SetmealDto setmealDto){
         setmealService.updateWithDish(setmealDto);
         return R.success("修改套餐成功");
@@ -148,6 +154,7 @@ public class SetmealController {
      * @param setmeal
      * @return
      */
+    @Cacheable(value = "setmealCache",key = "#setmeal.categoryId + '_' + #setmeal.status")
     @GetMapping("/list")
     public R<List<Setmeal>> list(Setmeal setmeal){
         LambdaQueryWrapper<Setmeal> queryWrapper = new LambdaQueryWrapper<>();
