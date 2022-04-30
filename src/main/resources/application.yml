@@ -65,4 +65,4 @@ mybatis-plus:
 #      logic-not-delete-value: 0 #逻辑已删除
 
 chiDeBao:
-  path: /usr/local/app/javaApp/chidebao/img
+  path: /usr/local/app/javaApp/chidebao/img/
