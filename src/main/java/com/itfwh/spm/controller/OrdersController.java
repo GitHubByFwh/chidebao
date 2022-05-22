@@ -14,6 +14,7 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import javax.servlet.http.HttpSession;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -92,5 +93,23 @@ public class OrdersController {
         log.info("orders={}",orders);
         ordersService.updateById(orders);
         return R.success("订单进度修改成功");
+    }
+
+    @GetMapping("/userPage")
+    public R<Page> userPage(int page, int pageSize, HttpSession session){
+        Long userId = (Long) session.getAttribute("user");
+        log.info("userId = {}",userId);
+        Page<Orders> pageInfo = new Page<>(page,pageSize);
+        LambdaQueryWrapper<Orders> queryWrapper = new LambdaQueryWrapper();
+        //匹配当前用户的id所对应的订单数据
+        queryWrapper.eq(Orders::getUserId,userId);
+        ordersService.page(pageInfo,queryWrapper);
+        return R.success(pageInfo);
+    }
+    @PostMapping("/again")
+    public R<String> again(@RequestBody OrdersDto ordersDto){
+        log.info("orders.id = {}",ordersDto.getId());
+
+        return null;
     }
 }
